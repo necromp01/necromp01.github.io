@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>freetheai status tracker</title>
+    <!-- tailwind css via cdn because corporate build tools are bloated -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <risu-style>0a2020202020202020626f6479207b0a2020202020202020202020206261636b67726f756e642d636f6c6f723a20233062306631393b0a202020202020202020202020636f6c6f723a20236532653866303b0a202020202020202020202020666f6e742d66616d696c793a2027436f7572696572204e6577272c20436f75726965722c206d6f6e6f73706163653b0a20202020202020207d0a20202020</risu-style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+    <div class="max-w-5xl mx-auto space-y-6">
+        
+        <!-- header and general API status -->
+        <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-[#111827] border border-[#1f2937] p-6 rounded-lg gap-4">
+            <div>
+                <h1 class="text-2xl font-bold tracking-widest text-[#10b981]">_freetheai_health_check</h1>
+                <p class="text-xs text-gray-400 mt-1" id="last-updated">loading real-time telemetry...</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="inline-block w-3 h-3 rounded-full animate-ping bg-[#10b981]" id="status-pulse"></span>
+                <span id="api-status" class="px-3 py-1 text-xs font-semibold rounded-full bg-[#10b981]/20 text-[#10b981] uppercase tracking-wider">
+                    pinging...
+                </span>
+            </div>
+        </header>
+
+        <!-- stats overview row -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="bg-[#111827] border border-[#1f2937] p-6 rounded-lg">
+                <h3 class="text-xs text-gray-400 uppercase tracking-wider">loaded models</h3>
+                <p id="stat-models" class="text-3xl font-bold text-[#8b5cf6] mt-2">--</p>
+            </div>
+            <div class="bg-[#111827] border border-[#1f2937] p-6 rounded-lg">
+                <h3 class="text-xs text-gray-400 uppercase tracking-wider">active providers</h3>
+                <p id="stat-providers" class="text-3xl font-bold text-[#3b82f6] mt-2 font-mono">--</p>
+            </div>
+            <div class="bg-[#111827] border border-[#1f2937] p-6 rounded-lg">
+                <h3 class="text-xs text-gray-400 uppercase tracking-wider">requests handled</h3>
+                <p id="stat-requests" class="text-3xl font-bold text-[#ec4899] mt-2 font-mono">--</p>
+            </div>
+        </div>
+
+        <!-- grid for provider grid and clients -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- providers status (takes 2 fractional columns) -->
+            <div class="lg:col-span-2 bg-[#111827] border border-[#1f2937] p-6 rounded-lg">
+                <h2 class="text-lg font-bold text-gray-100 border-b border-[#1f2937] pb-3 mb-4">node_connections</h2>
+                <div id="providers-list" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <!-- inject nodes recursively via js -->
+                </div>
+            </div>
+
+            <!-- clients breakdown -->
+            <div class="bg-[#111827] border border-[#1f2937] p-6 rounded-lg">
+                <h2 class="text-lg font-bold text-gray-100 border-b border-[#1f2937] pb-3 mb-4">tracked_agents</h2>
+                <div id="clients-list" class="space-y-3">
+                    <!-- inject top clients -->
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- main execution script -->
+    <script>
+        const API_URL = 'https://api.freetheai.xyz/v1/health';
+
+        async function fetchHealthStats() {
+            try {
+                const response = await fetch(API_URL);
+                if (!response.ok) throw new Error('network anomaly detected');
+                const data = await response.json();
+                renderPage(data);
+            } catch (err) {
+                console.error(err);
+                renderError();
+            }
+        }
+
+        function renderPage(data) {
+            // 1. update system general status
+            const apiStatus = document.getElementById('api-status');
+            const pulse = document.getElementById('status-pulse');
+            const totalSuccesses = data.total_tokens_served?.successful_requests || 0;
+            
+            if (data.status === 'ok') {
+                apiStatus.innerText = 'system operational';
+                apiStatus.className = 'px-3 py-1 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-400 uppercase tracking-wider';
+                pulse.className = 'inline-block w-3 h-3 rounded-full animate-ping bg-emerald-400';
+            } else {
+                apiStatus.innerText = 'issues detected';
+                apiStatus.className = 'px-3 py-1 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-500 uppercase tracking-wider';
+                pulse.className = 'inline-block w-3 h-3 rounded-full animate-ping bg-amber-500';
+            }
+
+            // last check update stamp
+            const timeFormatted = data.catalog?.updated_at 
+                ? new Date(data.catalog.updated_at).toLocaleTimeString() 
+                : new Date().toLocaleTimeString();
+            document.getElementById('last-updated').innerText = `last payload acquired: ${timeFormatted}`;
+
+            // 2. update micro overview numbers
+            document.getElementById('stat-models').innerText = data.catalog?.model_count || 0;
+            document.getElementById('stat-providers').innerText = data.catalog?.provider_count || 0;
+            document.getElementById('stat-requests').innerText = totalSuccesses.toLocaleString();
+
+            // 3. populate providers nodes
+            const providersContainer = document.getElementById('providers-list');
+            providersContainer.innerHTML = ''; // reset load
+
+            data.providers.forEach(prov => {
+                const card = document.createElement('div');
+                card.className = "p-4 rounded border border-gray-800 bg-gray-900/50 flex justify-between items-center";
+
+                // dynamic status styling based on upstream health states
+                let statusBadgeColor = 'text-status-emerald';
+                let statusBg = 'bg-emerald-500/10 border-emerald-500/20';
+                
+                if (prov.status === 'down') {
+                    statusBg = 'bg-rose-500/10 border-rose-500/20 text-rose-400';
+                } else if (prov.status === 'degraded') {
+                    statusBg = 'bg-amber-500/10 border-amber-500/20 text-amber-400';
+                } else {
+                    statusBg = 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400';
+                }
+
+                // calculate error percentage easily
+                const errPct = (prov.error_rate_30m * 100).toFixed(1);
+
+                card.innerHTML = `
+                    <div>
+                        <div class="font-bold text-sm tracking-wider text-white">[${prov.prefix}]</div>
+                        <div class="text-[10px] text-gray-500 mt-1">models: ${prov.model_count} | 30m err: ${errPct}%</div>
+                    </div>
+                    <span class="px-2 py-0.5 text-[10px] font-semibold border rounded ${statusBg} uppercase">
+                        ${prov.status}
+                    </span>
+                `;
+                providersContainer.appendChild(card);
+            });
+
+            // 4. populate system clients breakdown rank
+            const clientsContainer = document.getElementById('clients-list');
+            clientsContainer.innerHTML = ''; // clean load
+
+            data.clients.slice(0, 5).forEach((client, idx) => {
+                const item = document.createElement('div');
+                item.className = "flex items-center justify-between text-xs py-1 border-b border-[#1f2937]/50 pointer-events-none";
+                item.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="text-gray-500 font-mono">${idx + 1}.</span>
+                        <span class="font-bold text-gray-300 font-mono">${client.client_name}</span>
+                    </div>
+                    <div class="text-[10px] text-gray-500">
+                        req: <strong class="text-white">${client.total_requests.toLocaleString()}</strong>
+                    </div>
+                `;
+                clientsContainer.appendChild(item);
+            });
+        }
+
+        function renderError() {
+            document.getElementById('api-status').innerText = 'offline/blocked';
+            document.getElementById('api-status').className = 'px-3 py-1 text-xs font-semibold rounded-full bg-rose-500/20 text-rose-400 uppercase tracking-wider';
+            const pulse = document.getElementById('status-pulse');
+            pulse.className = 'inline-block w-3 h-3 rounded-full animate-ping bg-rose-500';
+            document.getElementById('last-updated').innerText = 'unable to execute target fetch. cors policy might be blocking frontend query.';
+        }
+
+        // fetch fresh metrics off runtime start
+        fetchHealthStats();
+        // check every 30 seconds for live updates automatic sequence!
+        setInterval(fetchHealthStats, 30000);
+    </script>
+</body>
+</html>
